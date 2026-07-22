@@ -1,0 +1,29 @@
+# systemd unit for the relay. Install to /etc/systemd/system/aio-relay.service
+#
+#   sudo cp deploy/aio-relay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now aio-relay
+#   systemctl status aio-relay
+#
+# The binary listens on localhost only; Caddy terminates TLS and proxies to it.
+[Unit]
+Description=AIO agent relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Tokens live in this env file (chmod 600, root-owned):
+EnvironmentFile=/etc/aio-relay.env
+ExecStart=/opt/aio-relay/aio-relay -addr 127.0.0.1:9090
+Restart=always
+RestartSec=2
+# Hardening:
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

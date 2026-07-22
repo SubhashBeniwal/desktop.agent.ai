@@ -1,0 +1,53 @@
+# AIO agent daemon configuration.
+# Copy to config.yaml and edit. Secrets can also come from the environment:
+#   AIO_SERVER_URL, AIO_TOKEN, AIO_DAEMON_ID, AIO_LOG_LEVEL
+
+# Control plane WebSocket endpoint. The daemon dials OUT to this (no inbound
+# ports are opened on your MacBook).
+server_url: "wss://control.example.com/agent"
+
+# Bearer token used to authenticate to the control plane.
+# Prefer setting this via the AIO_TOKEN env var instead of committing it.
+token: ""
+
+# Optional stable identity. Defaults to "<hostname>-<random>".
+daemon_id: ""
+name: "my-macbook"
+
+# Directories the daemon may read/write and run git/deploy commands in.
+# Any path outside these roots is rejected. Defaults to your home directory.
+workspaces:
+  - "~/code"
+
+# Connection tuning.
+heartbeat_interval: 30s
+reconnect_min: 1s
+reconnect_max: 30s
+
+log_level: info
+
+# Per-provider overrides. All providers are enabled by default; a provider is
+# only usable if its CLI is installed (checked at runtime). Override `bin` to
+# point at a specific executable, `args` for extra global flags, and `env` for
+# API keys / configuration passed to the process.
+providers:
+  claude:
+    enabled: true
+    # bin: "/opt/homebrew/bin/claude"
+    # env:
+    #   ANTHROPIC_API_KEY: "sk-ant-..."
+  codex:
+    enabled: true
+  gemini:
+    enabled: true
+  aider:
+    enabled: true
+  openhands:
+    enabled: true
+    # Headless OpenHands often runs via python; override if needed:
+    # bin: "python"
+    # args: ["-m", "openhands.core.main"]
+  cursor:
+    enabled: true
+  copilot:
+    enabled: true

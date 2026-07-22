@@ -48,3 +48,9 @@ Thumbs.db
 *.mov
 *.wmv
 
+
+# Go
+/bin/
+*.test
+*.out
+config.yaml

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS LaunchAgent that keeps the aio-daemon running and reconnecting.
+
+  Do NOT edit this template in place. Use deploy/install-daemon-launchd.sh, which
+  fills the __PLACEHOLDERS__ and installs the real plist to
+  ~/Library/LaunchAgents/com.aioagent.daemon.plist (outside the repo, so your
+  token never lands in git).
+
+  A LaunchAgent (per-user, ~/Library/LaunchAgents) is correct here: the daemon
+  needs your user session, your PATH, and your logged-in credentials for the
+  provider CLIs (claude, gh, git). A system LaunchDaemon would not have those.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.aioagent.daemon</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>__BINARY__</string>
+		<string>-server</string>
+		<string>__SERVER_URL__</string>
+	</array>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>AIO_TOKEN</key>
+		<string>__AIO_TOKEN__</string>
+		<!-- launchd starts with a minimal PATH; the daemon shells out to
+		     provider CLIs, so give it a real one. -->
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+
+	<key>StandardOutPath</key>
+	<string>__LOGDIR__/aio-daemon.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>__LOGDIR__/aio-daemon.err.log</string>
+
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

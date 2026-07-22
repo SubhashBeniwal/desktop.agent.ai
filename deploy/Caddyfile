@@ -1,0 +1,11 @@
+# Caddy reverse proxy for the relay. Auto-provisions a Let's Encrypt cert for
+# the hostname below (requires ports 80 + 443 reachable from the internet).
+#
+# Replace the hostname with your DuckDNS subdomain now; swap it for your own
+# domain later (Caddy re-issues the cert automatically — no other change needed).
+#
+# Caddy proxies WebSocket upgrades transparently, so /agent and /control just work.
+
+YOUR_SUBDOMAIN.duckdns.org {
+	reverse_proxy 127.0.0.1:9090
+}
