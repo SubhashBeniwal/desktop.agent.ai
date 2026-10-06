@@ -150,8 +150,62 @@ func (darwin) scroll(x, y float64, dx, dy int) {
 	C.aio_scroll(C.double(x), C.double(y), C.int(dx), C.int(dy))
 }
 
+// key posts keycode with flags' modifiers pressed as real keys around it:
+// system shortcuts (⌘Tab, ⌃← for Spaces, ⌃↑ for Mission Control) ignore a
+// key event that only carries modifier flags.
 func (darwin) key(keycode uint16, down bool, flags uint64) {
-	C.aio_key(C.uint16_t(keycode), cbool(down), C.uint64_t(flags))
+	post := func(kc uint16, down bool, flags uint64) {
+		C.aio_key(C.uint16_t(kc), cbool(down), C.uint64_t(flags))
+	}
+	if isModifierKeycode(keycode) {
+		post(keycode, down, flags)
+		return
+	}
+	if down {
+		var held uint64
+		for _, m := range modifierKeys {
+			if flags&m.flag != 0 {
+				held |= m.flag
+				post(m.keycode, true, held)
+			}
+		}
+		post(keycode, true, flags|keyFlags(keycode))
+		return
+	}
+	post(keycode, false, flags|keyFlags(keycode))
+	held := flags
+	for i := len(modifierKeys) - 1; i >= 0; i-- {
+		if m := modifierKeys[i]; flags&m.flag != 0 {
+			held &^= m.flag
+			post(m.keycode, false, held)
+		}
+	}
+}
+
+// modifierKeys are pressed in this order and released in reverse.
+var modifierKeys = []struct {
+	flag    uint64
+	keycode uint16
+}{
+	{flagControl, 0x3B}, {flagAlt, 0x3A}, {flagShift, 0x38}, {flagCommand, 0x37},
+}
+
+func isModifierKeycode(kc uint16) bool {
+	return kc >= 0x36 && kc <= 0x3F
+}
+
+// keyFlags are the flags a physical keyboard adds to kc. macOS hotkeys on
+// arrow keys (⌃← Spaces, ⌃↑ Mission Control) only match with them set.
+func keyFlags(kc uint16) uint64 {
+	switch kc {
+	case 0x7B, 0x7C, 0x7D, 0x7E: // arrows
+		return flagFn | flagNumPad
+	case 0x72, 0x73, 0x74, 0x75, 0x77, 0x79, // help, home, page up, delete, end, page down
+		0x7A, 0x78, 0x63, 0x76, 0x60, 0x61, 0x62, 0x64, 0x65, 0x6D, 0x67, 0x6F, // F1–F12
+		0x69, 0x6B, 0x71, 0x6A, 0x40, 0x4F, 0x50, 0x5A: // F13–F20
+		return flagFn
+	}
+	return 0
 }
 
 func (darwin) text(s string) {
@@ -177,6 +231,8 @@ const (
 	flagControl = 1 << 18
 	flagAlt     = 1 << 19
 	flagCommand = 1 << 20
+	flagNumPad  = 1 << 21
+	flagFn      = 1 << 23
 )
 
 func (darwin) modFlags(mods []string) uint64 {
