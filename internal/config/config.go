@@ -45,7 +45,27 @@ type Config struct {
 
 	// Providers holds per-provider overrides keyed by provider name
 	// (claude, codex, gemini, aider, openhands, cursor, copilot).
-	Providers map[string]ProviderSpec `yaml:"providers"`
+	Providers map[string]ProviderSpec `yaml:"providers,omitempty"`
+
+	// Stream configures remote app streaming (WebRTC).
+	Stream StreamConfig `yaml:"stream,omitempty"`
+}
+
+// StreamConfig configures remote app streaming.
+type StreamConfig struct {
+	// ICEServers are handed to the phone and used by the daemon's peer
+	// connection. Defaults to a public STUN server; add a TURN server for
+	// networks where direct connections fail.
+	ICEServers []ICEServer `yaml:"ice_servers,omitempty"`
+	// MaxSessions caps concurrent streams. Defaults to 2.
+	MaxSessions int `yaml:"max_sessions,omitempty"`
+}
+
+// ICEServer is a STUN or TURN server.
+type ICEServer struct {
+	URLs       []string `yaml:"urls" json:"urls"`
+	Username   string   `yaml:"username,omitempty" json:"username,omitempty"`
+	Credential string   `yaml:"credential,omitempty" json:"credential,omitempty"`
 }
 
 // ProviderSpec overrides the defaults for a single provider.
@@ -69,6 +89,7 @@ func Default() Config {
 		ReconnectMin:      Duration(1 * time.Second),
 		ReconnectMax:      Duration(30 * time.Second),
 		LogLevel:          "info",
+		Stream:            StreamConfig{MaxSessions: 2},
 	}
 }
 
@@ -125,6 +146,9 @@ func (cfg *Config) normalize() error {
 	if cfg.ReconnectMax < cfg.ReconnectMin {
 		cfg.ReconnectMax = cfg.ReconnectMin
 	}
+	if cfg.Stream.MaxSessions <= 0 {
+		cfg.Stream.MaxSessions = 2
+	}
 
 	// Expand and absolutize workspaces.
 	home, _ := os.UserHomeDir()
@@ -142,6 +166,47 @@ func (cfg *Config) normalize() error {
 		cfg.Workspaces[i] = filepath.Clean(abs)
 	}
 	return nil
+}
+
+// DefaultPath returns the per-user config file location used by the desktop
+// app, e.g. ~/Library/Application Support/AIO Agent/config.yaml on macOS and
+// %AppData%\AIO Agent\config.yaml on Windows.
+func DefaultPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "AIO Agent", "config.yaml"), nil
+}
+
+// HasDaemonID reports whether the config file at path exists and sets
+// daemon_id explicitly (rather than relying on a generated one).
+func HasDaemonID(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var raw struct {
+		DaemonID string `yaml:"daemon_id"`
+	}
+	return yaml.Unmarshal(data, &raw) == nil && raw.DaemonID != ""
+}
+
+// Save writes cfg to path as YAML, creating parent directories. The file is
+// written owner-only because it contains the auth token.
+func Save(path string, cfg Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Validate returns an error if required fields are missing.
@@ -178,6 +243,11 @@ type Duration time.Duration
 
 // D returns the underlying time.Duration.
 func (d Duration) D() time.Duration { return time.Duration(d) }
+
+// MarshalYAML implements yaml.Marshaler, writing durations as "30s".
+func (d Duration) MarshalYAML() (any, error) {
+	return time.Duration(d).String(), nil
+}
 
 // UnmarshalYAML implements yaml.Unmarshaler.
 func (d *Duration) UnmarshalYAML(value *yaml.Node) error {

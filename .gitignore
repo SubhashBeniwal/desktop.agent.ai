@@ -54,3 +54,6 @@ Thumbs.db
 *.test
 *.out
 config.yaml
+
+# Generated Windows resources (packaging/windows/build-installer.sh)
+*.syso

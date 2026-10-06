@@ -1,0 +1,47 @@
+# CI for aio.agent.ai.
+#
+# - Every push: go vet + tests (desktop app excluded: it needs cgo/WebKit,
+#   which the Linux image lacks; it is covered by the packaging builds).
+# - Tags v*: build the Windows installer and publish it to the repo's
+#   Downloads page (needs a BB_DOWNLOADS_TOKEN repository variable: a
+#   repository access token with "repository:write" scope).
+#
+# Bitbucket Cloud has no hosted macOS runners, so build the DMG on a Mac with
+# `make package-macos` (or add a self-hosted macOS runner step).
+image: golang:1.25
+
+definitions:
+  steps:
+    - step: &test
+        name: Test
+        script:
+          - go vet $(go list ./... | grep -v /cmd/desktop)
+          - go test $(go list ./... | grep -v /cmd/desktop)
+    - step: &windows
+        name: Windows installer
+        script:
+          - apt-get update && apt-get install -y nsis
+          - packaging/windows/build-installer.sh "${BITBUCKET_TAG:-}"
+        artifacts:
+          - dist/**
+
+pipelines:
+  default:
+    - step: *test
+  tags:
+    "v*":
+      - step: *test
+      - step: *windows
+      - step:
+          name: Publish to Downloads
+          script:
+            - |
+              for f in dist/*; do
+                echo "uploading $f"
+                curl -sSf -X POST -H "Authorization: Bearer ${BB_DOWNLOADS_TOKEN}" \
+                  "https://api.bitbucket.org/2.0/repositories/${BITBUCKET_REPO_FULL_NAME}/downloads" \
+                  -F "files=@${f}"
+              done
+  custom:
+    windows-installer:
+      - step: *windows

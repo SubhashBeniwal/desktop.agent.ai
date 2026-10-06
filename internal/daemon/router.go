@@ -15,17 +15,19 @@ import (
 // them through the dispatcher, streams logs, and reports a terminal result. It
 // also tracks in-flight commands so they can be cancelled.
 type router struct {
-	disp *dispatch.Dispatcher
-	log  *slog.Logger
+	disp  *dispatch.Dispatcher
+	log   *slog.Logger
+	hooks Hooks
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
 }
 
-func newRouter(disp *dispatch.Dispatcher, log *slog.Logger) *router {
+func newRouter(disp *dispatch.Dispatcher, log *slog.Logger, hooks Hooks) *router {
 	return &router{
 		disp:    disp,
 		log:     log,
+		hooks:   hooks,
 		running: make(map[string]context.CancelFunc),
 	}
 }
@@ -50,6 +52,9 @@ func (r *router) Handle(ctx context.Context, cmd protocol.Command, s transport.S
 	}()
 
 	r.send(s, protocol.TypeAck, cmd.ID, nil)
+	if r.hooks.OnCommand != nil {
+		r.hooks.OnCommand(cmd.ID, cmd.Action)
+	}
 
 	logFn := func(stream, data string) {
 		r.send(s, protocol.TypeLog, cmd.ID, protocol.LogLine{Stream: stream, Data: data})
@@ -59,9 +64,17 @@ func (r *router) Handle(ctx context.Context, cmd protocol.Command, s transport.S
 	if err != nil {
 		r.log.Warn("command failed", "id", cmd.ID, "action", cmd.Action, "err", err)
 		r.send(s, protocol.TypeResult, cmd.ID, protocol.Result{OK: false, Error: err.Error()})
+		r.finished(cmd, false, err.Error())
 		return
 	}
 	r.send(s, protocol.TypeResult, cmd.ID, protocol.Result{OK: true, Data: data})
+	r.finished(cmd, true, "")
+}
+
+func (r *router) finished(cmd protocol.Command, ok bool, errMsg string) {
+	if r.hooks.OnResult != nil {
+		r.hooks.OnResult(cmd.ID, cmd.Action, ok, errMsg)
+	}
 }
 
 func (r *router) cancel(cmd protocol.Command, s transport.Sender) {

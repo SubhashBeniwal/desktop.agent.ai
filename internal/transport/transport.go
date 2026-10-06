@@ -43,6 +43,9 @@ type Options struct {
 	BackoffMin time.Duration
 	BackoffMax time.Duration
 	Logger    *slog.Logger
+	// OnState, if set, is called when the connection is established
+	// (connected=true) and when it drops or a dial fails (connected=false).
+	OnState func(connected bool, err error)
 }
 
 // Client is the WebSocket transport. It implements Sender.
@@ -93,6 +96,7 @@ func (c *Client) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		c.notify(false, err)
 		if established {
 			backoff = c.opts.BackoffMin // successful session resets backoff
 		}
@@ -120,6 +124,7 @@ func (c *Client) serve(ctx context.Context) (established bool, err error) {
 		return false, err
 	}
 	c.log.Info("connected to control plane", "url", c.opts.URL)
+	c.notify(true, nil)
 
 	c.mu.Lock()
 	c.conn = conn
@@ -176,6 +181,12 @@ func (c *Client) serve(ctx context.Context) (established bool, err error) {
 		}
 		// Run each command in its own goroutine so reads keep flowing.
 		go c.opts.Handler.Handle(ctx, cmd, c)
+	}
+}
+
+func (c *Client) notify(connected bool, err error) {
+	if c.opts.OnState != nil {
+		c.opts.OnState(connected, err)
 	}
 }
 

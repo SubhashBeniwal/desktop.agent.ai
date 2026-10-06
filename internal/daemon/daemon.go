@@ -16,14 +16,29 @@ import (
 	"github.com/aioagent/daemon/internal/handlers"
 	"github.com/aioagent/daemon/internal/protocol"
 	"github.com/aioagent/daemon/internal/providers"
+	"github.com/aioagent/daemon/internal/remote"
 	"github.com/aioagent/daemon/internal/transport"
 )
+
+// Hooks let an embedding program (e.g. the desktop GUI) observe the daemon.
+// Every hook is optional and may be called from any goroutine.
+type Hooks struct {
+	// OnState reports control-plane connection changes.
+	OnState func(connected bool, err error)
+	// OnCommand is called when a command starts executing.
+	OnCommand func(id, action string)
+	// OnResult is called when a command finishes.
+	OnResult func(id, action string, ok bool, errMsg string)
+}
 
 // Daemon is the top-level application.
 type Daemon struct {
 	cfg     config.Config
 	log     *slog.Logger
 	version string
+
+	// Hooks are optional observers; set them before calling Run.
+	Hooks Hooks
 }
 
 // New creates a Daemon from validated configuration.
@@ -38,7 +53,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("init sandbox: %w", err)
 	}
 
-	registry := providers.BuildRegistry(providerOverrides(d.cfg))
+	registry := providers.BuildRegistry(ProviderOverrides(d.cfg))
 
 	h := &handlers.Handlers{
 		Providers: registry,
@@ -50,7 +65,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	disp := dispatch.New()
 	h.Register(disp)
 
-	rtr := newRouter(disp, d.log)
+	streams := remote.New(d.cfg.Stream, fs, d.log)
+	streams.Register(disp)
+	defer streams.Close()
+
+	rtr := newRouter(disp, d.log, d.Hooks)
 
 	d.log.Info("starting daemon",
 		"id", d.cfg.DaemonID,
@@ -68,6 +87,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		BackoffMin: d.cfg.ReconnectMin.D(),
 		BackoffMax: d.cfg.ReconnectMax.D(),
 		Logger:     d.log,
+		OnState:    d.Hooks.OnState,
 	})
 
 	return client.Run(ctx)
@@ -96,7 +116,8 @@ func authHeader(cfg config.Config) http.Header {
 	return h
 }
 
-func providerOverrides(cfg config.Config) map[string]providers.Override {
+// ProviderOverrides converts per-provider config into registry overrides.
+func ProviderOverrides(cfg config.Config) map[string]providers.Override {
 	if len(cfg.Providers) == 0 {
 		return nil
 	}

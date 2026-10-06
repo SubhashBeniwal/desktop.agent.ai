@@ -144,13 +144,19 @@ func (h *hub) serveAgent(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		h.mu.Lock()
-		if h.daemons[id] == c {
+		current := h.daemons[id] == c
+		if current {
 			delete(h.daemons, id)
 			delete(h.lastRegister, id)
 		}
 		h.mu.Unlock()
 		ws.Close()
-		log.Printf("daemon disconnected: %s", id)
+		log.Printf("daemon disconnected: %s (replaced=%v)", id, !current)
+		// A stale socket closing after the daemon reconnected must not mark
+		// the live daemon offline.
+		if !current {
+			return
+		}
 		if off, mErr := json.Marshal(routed{Type: "daemon.offline", Daemon: id}); mErr == nil {
 			h.broadcast(off)
 		}

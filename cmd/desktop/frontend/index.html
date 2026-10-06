@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIO Agent</title>
+<style>
+  :root {
+    --bg: #f6f6f8; --panel: #ffffff; --text: #17171c; --muted: #6b6b76;
+    --border: #e3e3e8; --accent: #6d4fe8; --accent-text: #fff;
+    --ok: #18a058; --warn: #d08a00; --err: #d03050; --idle: #8a8a94;
+    --input: #ffffff; --code: #f0f0f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171b; --panel: #1f1f24; --text: #ececf1; --muted: #9a9aa6;
+      --border: #303038; --accent: #8b72ff; --accent-text: #fff;
+      --input: #26262c; --code: #26262c;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; user-select: none; -webkit-user-select: none;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 14px 16px 10px;
+  }
+  header .title { font-weight: 600; font-size: 15px; }
+  header .sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .grow { flex: 1; min-width: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--idle); flex: none; }
+  .dot.connected { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .dot.connecting { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  nav { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+  nav button {
+    background: none; border: 0; color: var(--muted); font: inherit; padding: 8px 10px;
+    border-bottom: 2px solid transparent; cursor: pointer;
+  }
+  nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  main { flex: 1; overflow: auto; padding: 14px 16px 18px; }
+  section[hidden] { display: none; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  dl { display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+  .err { color: var(--err); }
+  .muted { color: var(--muted); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; font-size: 12px; color: var(--muted); }
+  .chip.on { color: var(--text); border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); }
+  .chip.on::before { content: "● "; color: var(--ok); }
+
+  button.btn {
+    font: inherit; border-radius: 7px; padding: 6px 14px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  button.link { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+
+  .field { display: block; margin-bottom: 14px; }
+  .field > span { display: block; font-weight: 500; margin-bottom: 4px; }
+  .field small { color: var(--muted); font-weight: 400; }
+  input[type=text], input[type=password], select {
+    width: 100%; font: inherit; color: var(--text); background: var(--input);
+    border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; outline: none;
+    user-select: text; -webkit-user-select: text;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row input { flex: 1; }
+  .ws-list { display: flex; flex-direction: column; gap: 6px; }
+  .ws-item { display: flex; align-items: center; gap: 8px; background: var(--code); border-radius: 7px; padding: 5px 9px; }
+  .ws-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .ws-item button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+  .switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
+  .actions .msg { flex: 1; }
+
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  td.when { color: var(--muted); white-space: nowrap; width: 1%; }
+  td.state { width: 1%; white-space: nowrap; }
+  .ok { color: var(--ok); } .fail { color: var(--err); } .run { color: var(--warn); }
+  .perm { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .perm .grow { flex: 1; }
+  .perm-state::before { content: "●"; color: var(--idle); }
+  .perm-state.on::before { color: var(--ok); }
+  .perm button[hidden] { display: none; }
+  code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+
+  #logs {
+    background: var(--code); border-radius: 8px; padding: 10px; margin: 0; height: calc(100vh - 170px);
+    overflow: auto; white-space: pre-wrap; word-break: break-all;
+    font: 11.5px/1.5 ui-monospace, Menlo, Consolas, monospace; user-select: text; -webkit-user-select: text;
+  }
+  .empty { color: var(--muted); text-align: center; padding: 30px 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="dot" id="dot"></div>
+  <div class="grow">
+    <div class="title" id="state-title">AIO Agent</div>
+    <div class="sub" id="state-sub"></div>
+  </div>
+  <button class="btn primary" id="toggle">Connect</button>
+</header>
+
+<nav role="tablist">
+  <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+  <button role="tab" data-tab="settings">Settings</button>
+  <button role="tab" data-tab="activity">Activity</button>
+  <button role="tab" data-tab="logs">Logs</button>
+</nav>
+
+<main>
+  <section id="tab-overview">
+    <div class="card">
+      <h3>This machine</h3>
+      <dl>
+        <dt>Name</dt><dd id="o-name"></dd>
+        <dt>Daemon ID</dt><dd class="mono" id="o-id"></dd>
+        <dt>Server</dt><dd class="mono" id="o-server"></dd>
+        <dt>Version</dt><dd id="o-version"></dd>
+        <dt>Running</dt><dd id="o-running"></dd>
+      </dl>
+      <p class="err" id="o-error" hidden></p>
+    </div>
+    <div class="card" id="remote-card" hidden>
+      <h3>Remote apps</h3>
+      <p class="muted" style="margin:0 0 8px">Stream app windows to your phone and control them. macOS needs two permissions:</p>
+      <div class="perm"><span id="perm-screen" class="perm-state"></span><span class="grow">Screen Recording <small class="muted">— to see windows</small></span><button class="btn" data-grant="screen_recording">Grant…</button></div>
+      <div class="perm"><span id="perm-access" class="perm-state"></span><span class="grow">Accessibility <small class="muted">— to click and type</small></span><button class="btn" data-grant="accessibility">Grant…</button></div>
+      <p class="muted" id="perm-hint" style="margin:8px 0 0" hidden>After granting Screen Recording, quit and reopen AIO Agent.</p>
+    </div>
+    <div class="card">
+      <h3>Agent providers</h3>
+      <div class="chips" id="o-providers"></div>
+      <p class="muted" style="margin:8px 0 0">Providers are usable when their CLI is installed and on your PATH.</p>
+    </div>
+  </section>
+
+  <section id="tab-settings" hidden>
+    <form id="settings" autocomplete="off">
+      <label class="field"><span>Relay / server URL</span>
+        <input type="text" name="serverUrl" placeholder="wss://relay.example.com/agent" spellcheck="false">
+      </label>
+      <label class="field"><span>Agent token <small>— sent as a Bearer token</small></span>
+        <div class="row">
+          <input type="password" name="token" spellcheck="false">
+          <button type="button" class="btn" id="reveal">Show</button>
+        </div>
+      </label>
+      <label class="field"><span>Display name</span>
+        <input type="text" name="name" spellcheck="false">
+      </label>
+      <div class="field">
+        <span style="display:block;font-weight:500;margin-bottom:4px">Workspaces <small class="muted">— folders the agent may read, write and run in</small></span>
+        <div class="ws-list" id="ws-list"></div>
+        <button type="button" class="link" id="ws-add" style="margin-top:6px">+ Add folder…</button>
+      </div>
+      <label class="field"><span>Log level</span>
+        <select name="logLevel">
+          <option value="debug">debug</option><option value="info">info</option>
+          <option value="warn">warn</option><option value="error">error</option>
+        </select>
+      </label>
+      <label class="switch field"><input type="checkbox" id="autostart"> Launch AIO Agent at login</label>
+      <p class="muted">Config file: <span class="mono" id="cfg-path"></span></p>
+      <div class="actions">
+        <span class="msg" id="save-msg"></span>
+        <button type="submit" class="btn primary">Save &amp; connect</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="tab-activity" hidden>
+    <table><tbody id="activity"></tbody></table>
+    <div class="empty" id="activity-empty">No commands yet. Commands from your phone will show up here.</div>
+  </section>
+
+  <section id="tab-logs" hidden>
+    <pre id="logs"></pre>
+  </section>
+</main>
+
+<script type="module">
+import { Call, Events } from "/wails/runtime.js";
+
+const api = (method, ...args) => Call.ByName(`main.App.${method}`, ...args);
+const $ = (id) => document.getElementById(id);
+
+// ---- tabs ----
+for (const b of document.querySelectorAll("nav button")) {
+  b.addEventListener("click", () => showTab(b.dataset.tab));
+}
+function showTab(name) {
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-selected", b.dataset.tab === name);
+  for (const s of document.querySelectorAll("main section")) s.hidden = s.id !== `tab-${name}`;
+  if (name === "logs") scrollLogs();
+  if (name === "activity") loadActivity();
+}
+
+// ---- status ----
+let status = null;
+const labels = {
+  unconfigured: ["Not set up", "Add a relay URL in Settings to get started"],
+  stopped: ["Disconnected", ""],
+  connecting: ["Connecting…", ""],
+  connected: ["Connected", ""],
+};
+function renderStatus(s) {
+  status = s;
+  $("dot").className = `dot ${s.state}`;
+  const [title, hint] = labels[s.state] ?? [s.state, ""];
+  $("state-title").textContent = title;
+  $("state-sub").textContent = s.state === "connected" || s.state === "connecting" ? s.serverUrl : hint;
+  const btn = $("toggle");
+  btn.textContent = s.state === "stopped" || s.state === "unconfigured" ? "Connect" : "Disconnect";
+  btn.disabled = s.state === "unconfigured";
+
+  $("o-name").textContent = s.name;
+  $("o-id").textContent = s.daemonId;
+  $("o-server").textContent = s.serverUrl || "—";
+  $("o-version").textContent = s.version;
+  $("o-running").textContent = s.running ? `${s.running} command(s)` : "idle";
+  $("o-error").hidden = !s.lastError;
+  $("o-error").textContent = s.lastError ? `Last error: ${s.lastError}` : "";
+}
+$("toggle").addEventListener("click", async () => {
+  try {
+    if (status && (status.state === "connected" || status.state === "connecting")) await api("Disconnect");
+    else await api("Connect");
+  } catch (e) { alert(e.message ?? e); }
+});
+
+// ---- providers ----
+async function loadProviders() {
+  const list = await api("Providers");
+  $("o-providers").replaceChildren(...list.map((p) => {
+    const c = document.createElement("span");
+    c.className = `chip${p.available ? " on" : ""}`;
+    c.textContent = p.name;
+    c.title = p.available ? "installed" : "CLI not found on PATH";
+    return c;
+  }));
+}
+
+// ---- remote apps ----
+async function loadRemote() {
+  const r = await api("RemoteStatus");
+  $("remote-card").hidden = !r.supported;
+  if (!r.supported) return;
+  for (const [id, on, kind] of [["perm-screen", r.screen_recording, "screen_recording"], ["perm-access", r.accessibility, "accessibility"]]) {
+    $(id).className = `perm-state${on ? " on" : ""}`;
+    document.querySelector(`[data-grant="${kind}"]`).hidden = on;
+  }
+}
+for (const b of document.querySelectorAll("[data-grant]")) {
+  b.addEventListener("click", async () => {
+    await api("GrantRemotePermission", b.dataset.grant);
+    if (b.dataset.grant === "screen_recording") $("perm-hint").hidden = false;
+  });
+}
+// Permissions change in System Settings; refresh when the window regains focus.
+window.addEventListener("focus", () => loadRemote());
+
+// ---- settings ----
+let workspaces = [];
+function renderWorkspaces() {
+  $("ws-list").replaceChildren(...workspaces.map((w, i) => {
+    const row = document.createElement("div");
+    row.className = "ws-item";
+    const span = document.createElement("span");
+    span.textContent = w; span.title = w;
+    const rm = document.createElement("button");
+    rm.type = "button"; rm.textContent = "×"; rm.title = "Remove";
+    rm.onclick = () => { workspaces.splice(i, 1); renderWorkspaces(); };
+    row.append(span, rm);
+    return row;
+  }));
+}
+async function loadSettings() {
+  const s = await api("Settings");
+  const f = $("settings");
+  f.serverUrl.value = s.serverUrl ?? "";
+  f.token.value = s.token ?? "";
+  f.name.value = s.name ?? "";
+  f.logLevel.value = s.logLevel || "info";
+  workspaces = [...(s.workspaces ?? [])];
+  renderWorkspaces();
+  $("cfg-path").textContent = s.configPath;
+  $("autostart").checked = await api("LaunchAtLogin");
+}
+$("ws-add").addEventListener("click", async () => {
+  const dir = await api("ChooseFolder");
+  if (dir && !workspaces.includes(dir)) { workspaces.push(dir); renderWorkspaces(); }
+});
+$("reveal").addEventListener("click", () => {
+  const t = $("settings").token;
+  const show = t.type === "password";
+  t.type = show ? "text" : "password";
+  $("reveal").textContent = show ? "Hide" : "Show";
+});
+$("autostart").addEventListener("change", async (e) => {
+  try { await api("SetLaunchAtLogin", e.target.checked); }
+  catch (err) { e.target.checked = !e.target.checked; alert(err.message ?? err); }
+});
+$("settings").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, msg = $("save-msg");
+  msg.className = "msg muted"; msg.textContent = "Saving…";
+  try {
+    await api("SaveSettings", {
+      serverUrl: f.serverUrl.value, token: f.token.value, name: f.name.value,
+      logLevel: f.logLevel.value, workspaces,
+    });
+    msg.className = "msg ok"; msg.textContent = "Saved";
+    await Promise.all([loadSettings(), loadProviders()]);
+    setTimeout(() => (msg.textContent = ""), 2500);
+  } catch (err) {
+    msg.className = "msg err"; msg.textContent = err.message ?? String(err);
+  }
+});
+
+// ---- activity ----
+const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+async function loadActivity() {
+  const items = await api("Activity");
+  $("activity-empty").hidden = items.length > 0;
+  $("activity").replaceChildren(...items.map((a) => {
+    const tr = document.createElement("tr");
+    const when = document.createElement("td"); when.className = "when";
+    when.textContent = timeFmt.format(a.started);
+    const act = document.createElement("td");
+    act.innerHTML = `<code></code>`;
+    act.firstChild.textContent = a.action;
+    if (a.error) { const e = document.createElement("div"); e.className = "err"; e.textContent = a.error; act.append(e); }
+    const st = document.createElement("td"); st.className = "state";
+    if (!a.finished) { st.className += " run"; st.textContent = "running"; }
+    else { st.className += a.ok ? " ok" : " fail"; st.textContent = `${a.ok ? "ok" : "failed"} · ${((a.finished - a.started) / 1000).toFixed(1)}s`; }
+    tr.append(when, act, st);
+    return tr;
+  }));
+}
+
+// ---- logs ----
+const logsEl = $("logs");
+function atBottom() { return logsEl.scrollHeight - logsEl.scrollTop - logsEl.clientHeight < 30; }
+function scrollLogs() { logsEl.scrollTop = logsEl.scrollHeight; }
+function appendLog(line) {
+  const stick = atBottom();
+  logsEl.append(line + "\n");
+  // Bound the DOM to the same history the backend keeps.
+  while (logsEl.childNodes.length > 2000) logsEl.firstChild.remove();
+  if (stick) scrollLogs();
+}
+
+// ---- wiring ----
+Events.On("aio:status", (e) => renderStatus(e.data));
+Events.On("aio:log", (e) => appendLog(e.data));
+Events.On("aio:activity", () => { if (!$("tab-activity").hidden) loadActivity(); });
+
+(async () => {
+  renderStatus(await api("Status"));
+  for (const l of await api("Logs")) logsEl.append(l + "\n");
+  await Promise.all([loadSettings(), loadProviders(), loadRemote()]);
+  if (status.state === "unconfigured") showTab("settings");
+  else if (location.hash) showTab(location.hash.slice(1));
+})();
+</script>
+</body>
+</html>
